@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,111 +15,149 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __UPDATEMASK_H
-#define __UPDATEMASK_H
+#ifndef UpdateMask_h__
+#define UpdateMask_h__
 
-#include "UpdateFields.h"
-#include "Errors.h"
+#include "Define.h"
 
+namespace UpdateMaskHelpers
+{
+    inline constexpr uint32 GetBlockIndex(uint32 bit) { return bit / 32; }
+    inline constexpr uint32 GetBlockFlag(uint32 bit) { return 1 << (bit % 32); }
+}
+
+template<uint32 Bits>
 class UpdateMask
 {
-    public:
-        UpdateMask() : mCount(0), mBlocks(0), mUpdateMask(0) { }
-        UpdateMask(const UpdateMask& mask) : mUpdateMask(0) { *this = mask; }
+public:
+    static constexpr uint32 BlockCount = (Bits + 31) / 32;
+    static constexpr uint32 BlocksMaskCount = (BlockCount + 31) / 32;
 
-        ~UpdateMask()
+    UpdateMask()
+    {
+        std::fill(std::begin(_blocksMask), std::end(_blocksMask), 0);
+        std::fill(std::begin(_blocks), std::end(_blocks), 0);
+    }
+
+    UpdateMask(std::initializer_list<uint32> init)
+    {
+        InitFromBlocks(init.begin(), init.size());
+    }
+
+    uint32 GetBlocksMask(uint32 index) const
+    {
+        return _blocksMask[index];
+    }
+
+    uint32 GetBlock(uint32 index) const
+    {
+        return _blocks[index];
+    }
+
+    bool operator[](uint32 index) const
+    {
+        return (_blocks[index / 32] & (1 << (index % 32))) != 0;
+    }
+
+    bool IsAnySet() const
+    {
+        return std::any_of(std::begin(_blocksMask), std::end(_blocksMask), [](uint32 blockMask)
         {
-            delete [] mUpdateMask;
-        }
+            return blockMask != 0;
+        });
+    }
 
-        void SetBit (uint32 index)
+    void Reset(uint32 index)
+    {
+        std::size_t blockIndex = UpdateMaskHelpers::GetBlockIndex(index);
+        if (!(_blocks[blockIndex] &= ~UpdateMaskHelpers::GetBlockFlag(index)))
+            _blocksMask[UpdateMaskHelpers::GetBlockIndex(blockIndex)] &= ~UpdateMaskHelpers::GetBlockFlag(blockIndex);
+    }
+
+    void ResetAll()
+    {
+        std::fill(std::begin(_blocksMask), std::end(_blocksMask), 0);
+        std::fill(std::begin(_blocks), std::end(_blocks), 0);
+    }
+
+    void Set(uint32 index)
+    {
+        std::size_t blockIndex = UpdateMaskHelpers::GetBlockIndex(index);
+        _blocks[blockIndex] |= UpdateMaskHelpers::GetBlockFlag(index);
+        _blocksMask[UpdateMaskHelpers::GetBlockIndex(blockIndex)] |= UpdateMaskHelpers::GetBlockFlag(blockIndex);
+    }
+
+    void SetAll()
+    {
+        std::fill(std::begin(_blocksMask), std::end(_blocksMask), 0xFFFFFFFF);
+        if (BlocksMaskCount % 32)
         {
-            ((uint8 *)mUpdateMask)[ index >> 3 ] |= 1 << (index & 0x7);
+            constexpr uint32 unused = 32 - (BlocksMaskCount % 32);
+            _blocksMask[BlocksMaskCount - 1] &= (0xFFFFFFFF >> unused);
         }
-
-        void UnsetBit (uint32 index)
+        std::fill(std::begin(_blocks), std::end(_blocks), 0xFFFFFFFF);
+        if (BlockCount % 32)
         {
-            ((uint8 *)mUpdateMask)[ index >> 3 ] &= (0xff ^ (1 <<  (index & 0x7)));
+            constexpr uint32 unused = 32 - (BlockCount % 32);
+            _blocks[BlockCount - 1] &= (0xFFFFFFFF >> unused);
         }
+    }
 
-        bool GetBit (uint32 index) const
-        {
-            return (((uint8 *)mUpdateMask)[ index >> 3 ] & (1 << (index & 0x7))) != 0;
-        }
+    UpdateMask& operator&=(UpdateMask const& right)
+    {
+        for (uint32 i = 0; i < BlocksMaskCount; ++i)
+            _blocksMask[i] &= right._blocksMask[i];
 
-        uint32 GetBlockCount() const { return mBlocks; }
-        uint32 GetLength() const { return mBlocks << 2; }
-        uint32 GetCount() const { return mCount; }
-        uint8* GetMask() { return (uint8*)mUpdateMask; }
+        for (uint32 i = 0; i < BlockCount; ++i)
+            if (!(_blocks[i] &= right._blocks[i]))
+                _blocksMask[UpdateMaskHelpers::GetBlockIndex(i)] &= ~UpdateMaskHelpers::GetBlockFlag(i);
 
-        void SetCount (uint32 valuesCount)
-        {
-            delete [] mUpdateMask;
+        return *this;
+    }
 
-            mCount = valuesCount;
-            mBlocks = (valuesCount + 31) / 32;
+    UpdateMask& operator|=(UpdateMask const& right)
+    {
+        for (std::size_t i = 0; i < BlocksMaskCount; ++i)
+            _blocksMask[i] |= right._blocksMask[i];
 
-            mUpdateMask = new uint32[mBlocks];
-            memset(mUpdateMask, 0, mBlocks << 2);
-        }
+        for (std::size_t i = 0; i < BlockCount; ++i)
+            _blocks[i] |= right._blocks[i];
 
-        void Clear()
-        {
-            if (mUpdateMask)
-                memset(mUpdateMask, 0, mBlocks << 2);
-        }
+        return *this;
+    }
 
-        UpdateMask& operator = (const UpdateMask& mask)
-        {
-            if (this == &mask)
-                return *this;
+private:
+    void InitFromBlocks(uint32 const* input, uint32 size)
+    {
+        std::fill(std::begin(_blocksMask), std::end(_blocksMask), 0);
 
-            SetCount(mask.mCount);
-            memcpy(mUpdateMask, mask.mUpdateMask, mBlocks << 2);
+        uint32 block = 0;
+        for (; block < size; ++block)
+            if ((_blocks[block] = input[block]) != 0)
+                _blocksMask[UpdateMaskHelpers::GetBlockIndex(block)] |= UpdateMaskHelpers::GetBlockFlag(block);
 
-            return *this;
-        }
+        for (; block < BlockCount; ++block)
+            _blocks[block] = 0;
+    }
 
-        void operator &= (const UpdateMask& mask)
-        {
-            ASSERT(mask.mCount <= mCount);
-            for (uint32 i = 0; i < mBlocks; ++i)
-                mUpdateMask[i] &= mask.mUpdateMask[i];
-        }
-
-        void operator |= (const UpdateMask& mask)
-        {
-            ASSERT(mask.mCount <= mCount);
-            for (uint32 i = 0; i < mBlocks; ++i)
-                mUpdateMask[i] |= mask.mUpdateMask[i];
-        }
-
-        UpdateMask operator & (const UpdateMask& mask) const
-        {
-            ASSERT(mask.mCount <= mCount);
-
-            UpdateMask newmask;
-            newmask = *this;
-            newmask &= mask;
-
-            return newmask;
-        }
-
-        UpdateMask operator | (const UpdateMask& mask) const
-        {
-            ASSERT(mask.mCount <= mCount);
-
-            UpdateMask newmask;
-            newmask = *this;
-            newmask |= mask;
-
-            return newmask;
-        }
-
-    private:
-        uint32 mCount;
-        uint32 mBlocks;
-        uint32 *mUpdateMask;
+    uint32 _blocksMask[BlocksMaskCount];
+    uint32 _blocks[BlockCount];
 };
-#endif
 
+template<uint32 Bits>
+UpdateMask<Bits> operator&(UpdateMask<Bits> const& left, UpdateMask<Bits> const& right)
+{
+    UpdateMask<Bits> result = left;
+    result &= right;
+    return result;
+}
+
+template<uint32 Bits>
+UpdateMask<Bits> operator|(UpdateMask<Bits> const& left, UpdateMask<Bits> const& right)
+{
+    UpdateMask<Bits> result = left;
+    result |= right;
+    return result;
+}
+
+#endif // UpdateMask_h__

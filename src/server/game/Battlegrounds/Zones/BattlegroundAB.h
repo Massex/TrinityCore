@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,10 +14,13 @@
  * You should have received a copy of the GNU General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
+
 #ifndef __BATTLEGROUNDAB_H
 #define __BATTLEGROUNDAB_H
 
-class Battleground;
+#include "Battleground.h"
+#include "BattlegroundScore.h"
+#include "Object.h"
 
 enum BG_AB_WorldStates
 {
@@ -102,7 +104,7 @@ enum BG_AB_ObjectType
     BG_AB_OBJECT_SPEEDBUFF_GOLD_MINE     = 54,
     BG_AB_OBJECT_REGENBUFF_GOLD_MINE     = 55,
     BG_AB_OBJECT_BERSERKBUFF_GOLD_MINE   = 56,
-    BG_AB_OBJECT_MAX                     = 57,
+    BG_AB_OBJECT_MAX                     = 57
 };
 
 /* Object id templates from DB */
@@ -123,7 +125,7 @@ enum BG_AB_ObjectTypes
 
 enum BG_AB_Timers
 {
-    BG_AB_FLAG_CAPTURING_TIME           = 60000,
+    BG_AB_FLAG_CAPTURING_TIME           = 60000
 };
 
 enum BG_AB_Score
@@ -146,7 +148,35 @@ enum BG_AB_BattlegroundNodes
     BG_AB_SPIRIT_ALIANCE        = 5,
     BG_AB_SPIRIT_HORDE          = 6,
 
-    BG_AB_ALL_NODES_COUNT       = 7,                        // all nodes (dynamic and static)
+    BG_AB_ALL_NODES_COUNT       = 7                         // all nodes (dynamic and static)
+};
+
+enum BG_AB_BroadcastTexts
+{
+    BG_AB_TEXT_ALLIANCE_NEAR_VICTORY    = 10598,
+    BG_AB_TEXT_HORDE_NEAR_VICTORY       = 10599,
+};
+
+struct ABNodeInfo
+{
+    uint32 NodeId;
+    uint32 TextAllianceAssaulted;
+    uint32 TextHordeAssaulted;
+    uint32 TextAllianceTaken;
+    uint32 TextHordeTaken;
+    uint32 TextAllianceDefended;
+    uint32 TextHordeDefended;
+    uint32 TextAllianceClaims;
+    uint32 TextHordeClaims;
+};
+
+ABNodeInfo const ABNodes[BG_AB_DYNAMIC_NODES_COUNT] =
+{
+    { BG_AB_NODE_STABLES,     10199, 10200, 10203, 10204, 10201, 10202, 10286, 10287 },
+    { BG_AB_NODE_BLACKSMITH,  10211, 10212, 10213, 10214, 10215, 10216, 10290, 10291 },
+    { BG_AB_NODE_FARM,        10217, 10218, 10219, 10220, 10221, 10222, 10288, 10289 },
+    { BG_AB_NODE_LUMBER_MILL, 10224, 10225, 10226, 10227, 10228, 10229, 10284, 10285 },
+    { BG_AB_NODE_GOLD_MINE,   10230, 10231, 10232, 10233, 10234, 10235, 10282, 10283 }
 };
 
 enum BG_AB_NodeStatus
@@ -176,6 +206,12 @@ enum BG_AB_Objectives
     AB_OBJECTIVE_DEFEND_BASE            = 123
 };
 
+enum BG_AB_ExploitTeleportLocations
+{
+    AB_EXPLOIT_TELEPORT_LOCATION_ALLIANCE = 3705,
+    AB_EXPLOIT_TELEPORT_LOCATION_HORDE = 3706
+};
+
 #define BG_AB_NotABBGWeekendHonorTicks      260
 #define BG_AB_ABBGWeekendHonorTicks         160
 #define BG_AB_NotABBGWeekendReputationTicks 160
@@ -183,8 +219,7 @@ enum BG_AB_Objectives
 
 #define AB_EVENT_START_BATTLE               9158 // Achievement: Let's Get This Done
 
-// x, y, z, o
-const float BG_AB_NodePositions[BG_AB_DYNAMIC_NODES_COUNT][4] =
+Position const BG_AB_NodePositions[BG_AB_DYNAMIC_NODES_COUNT] =
 {
     {1166.785f, 1200.132f, -56.70859f, 0.9075713f},         // stables
     {977.0156f, 1046.616f, -44.80923f, -2.600541f},         // blacksmith
@@ -217,8 +252,7 @@ const float BG_AB_BuffPositions[BG_AB_DYNAMIC_NODES_COUNT][4] =
     {1146.62f, 816.94f, -98.49f, 6.14f}                     // gold mine
 };
 
-// x, y, z, o
-const float BG_AB_SpiritGuidePos[BG_AB_ALL_NODES_COUNT][4] =
+Position const BG_AB_SpiritGuidePos[BG_AB_ALL_NODES_COUNT] =
 {
     {1200.03f, 1171.09f, -56.47f, 5.15f},                   // stables
     {1017.43f, 960.61f, -42.95f, 4.88f},                    // blacksmith
@@ -236,11 +270,40 @@ struct BG_AB_BannerTimer
     uint8       teamIndex;
 };
 
-class BattlegroundABScore : public BattlegroundScore
+struct BattlegroundABScore final : public BattlegroundScore
 {
-    public:
-        BattlegroundABScore(): BasesAssaulted(0), BasesDefended(0) {};
-        virtual ~BattlegroundABScore() {};
+    friend class BattlegroundAB;
+
+    protected:
+        BattlegroundABScore(ObjectGuid playerGuid, uint32 team) : BattlegroundScore(playerGuid, team), BasesAssaulted(0), BasesDefended(0) { }
+
+        void UpdateScore(uint32 type, uint32 value) override
+        {
+            switch (type)
+            {
+                case SCORE_BASES_ASSAULTED:
+                    BasesAssaulted += value;
+                    break;
+                case SCORE_BASES_DEFENDED:
+                    BasesDefended += value;
+                    break;
+                default:
+                    BattlegroundScore::UpdateScore(type, value);
+                    break;
+            }
+        }
+
+        void BuildPvPLogPlayerDataPacket(WorldPackets::Battleground::PVPLogData::PVPMatchPlayerStatistics& playerData) const override
+        {
+            BattlegroundScore::BuildPvPLogPlayerDataPacket(playerData);
+
+            playerData.Stats.emplace_back(AB_OBJECTIVE_ASSAULT_BASE, BasesAssaulted);
+            playerData.Stats.emplace_back(AB_OBJECTIVE_DEFEND_BASE, BasesDefended);
+        }
+
+        uint32 GetAttr1() const final override { return BasesAssaulted; }
+        uint32 GetAttr2() const final override { return BasesDefended; }
+
         uint32 BasesAssaulted;
         uint32 BasesDefended;
 };
@@ -248,43 +311,44 @@ class BattlegroundABScore : public BattlegroundScore
 class BattlegroundAB : public Battleground
 {
     public:
-        BattlegroundAB();
+        BattlegroundAB(BattlegroundTemplate const* battlegroundTemplate);
         ~BattlegroundAB();
 
-        void AddPlayer(Player* player);
-        virtual void StartingEventCloseDoors();
-        virtual void StartingEventOpenDoors();
-        void RemovePlayer(Player* player, uint64 guid, uint32 team);
-        void HandleAreaTrigger(Player* Source, uint32 Trigger);
-        virtual bool SetupBattleground();
-        virtual void Reset();
-        void EndBattleground(uint32 winner);
-        virtual WorldSafeLocsEntry const* GetClosestGraveYard(Player* player);
+        void AddPlayer(Player* player) override;
+        void StartingEventCloseDoors() override;
+        void StartingEventOpenDoors() override;
+        void RemovePlayer(Player* player, ObjectGuid guid, uint32 team) override;
+        void HandleAreaTrigger(Player* source, uint32 trigger, bool entered) override;
+        bool SetupBattleground() override;
+        void Reset() override;
+        void EndBattleground(uint32 winner) override;
+        WorldSafeLocsEntry const* GetClosestGraveYard(Player* player) override;
+        WorldSafeLocsEntry const* GetExploitTeleportLocation(Team team) override;
 
         /* Scorekeeping */
-        virtual void UpdatePlayerScore(Player* Source, uint32 type, uint32 value, bool doAddHonor = true);
+        bool UpdatePlayerScore(Player* player, uint32 type, uint32 value, bool doAddHonor = true) override;
 
-        virtual void FillInitialWorldStates(WorldPacket& data);
+        void FillInitialWorldStates(WorldPackets::WorldState::InitWorldStates& packet) override;
 
         /* Nodes occupying */
-        virtual void EventPlayerClickedOnFlag(Player* source, GameObject* target_obj);
+        void EventPlayerClickedOnFlag(Player* source, GameObject* target_obj) override;
 
         /* achievement req. */
-        bool IsAllNodesConrolledByTeam(uint32 team) const;  // overwrited
-        bool IsTeamScores500Disadvantage(uint32 team) const { return m_TeamScores500Disadvantage[GetTeamIndexByTeamId(team)]; }
+        bool IsAllNodesControlledByTeam(uint32 team) const override;
+        bool CheckAchievementCriteriaMeet(uint32 /*criteriaId*/, Player const* /*player*/, Unit const* /*target*/ = nullptr, uint32 /*miscvalue1*/ = 0) override;
+
+        uint32 GetPrematureWinner() override;
     private:
-        virtual void PostUpdateImpl(uint32 diff);
+        void PostUpdateImpl(uint32 diff) override;
         /* Gameobject spawning/despawning */
         void _CreateBanner(uint8 node, uint8 type, uint8 teamIndex, bool delay);
         void _DelBanner(uint8 node, uint8 type, uint8 teamIndex);
         void _SendNodeUpdate(uint8 node);
 
         /* Creature spawning/despawning */
-        // TODO: working, scripted peons spawning
+        /// @todo working, scripted peons spawning
         void _NodeOccupied(uint8 node, Team team);
         void _NodeDeOccupied(uint8 node);
-
-        int32 _GetNodeNameId(uint8 node);
 
         /* Nodes info:
             0: neutral
@@ -306,4 +370,3 @@ class BattlegroundAB : public Battleground
         bool                m_TeamScores500Disadvantage[BG_TEAMS_COUNT];
 };
 #endif
-

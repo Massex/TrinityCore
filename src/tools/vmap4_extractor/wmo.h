@@ -1,64 +1,103 @@
 /*
- * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifndef WMO_H
 #define WMO_H
-#define TILESIZE (533.33333f)
-#define CHUNKSIZE ((TILESIZE) / 16.0f)
 
 #include <string>
-#include <set>
+#include <unordered_set>
+#include <vector>
 #include "vec3d.h"
-#include "loadlib/loadlib.h"
+#include "cascfile.h"
 
 // MOPY flags
-#define WMO_MATERIAL_NOCAMCOLLIDE    0x01
-#define WMO_MATERIAL_DETAIL          0x02
-#define WMO_MATERIAL_NO_COLLISION    0x04
-#define WMO_MATERIAL_HINT            0x08
-#define WMO_MATERIAL_RENDER          0x10
-#define WMO_MATERIAL_COLLIDE_HIT     0x20
-#define WMO_MATERIAL_WALL_SURFACE    0x40
+enum MopyFlags
+{
+    WMO_MATERIAL_UNK01          = 0x01,
+    WMO_MATERIAL_NOCAMCOLLIDE   = 0x02,
+    WMO_MATERIAL_DETAIL         = 0x04,
+    WMO_MATERIAL_COLLISION      = 0x08,
+    WMO_MATERIAL_HINT           = 0x10,
+    WMO_MATERIAL_RENDER         = 0x20,
+    WMO_MATERIAL_WALL_SURFACE   = 0x40, // Guessed
+    WMO_MATERIAL_COLLIDE_HIT    = 0x80
+};
 
 class WMOInstance;
 class WMOManager;
-class MPQFile;
+class CASCFile;
+struct ADTOutputCache;
+namespace ADT { struct MODF; }
+
+namespace WMO
+{
+    struct MODS
+    {
+        char Name[20];
+        uint32 StartIndex;     // index of first doodad instance in this set
+        uint32 Count;          // number of doodad instances in this set
+        char _pad[4];
+    };
+
+    struct MODD
+    {
+        uint32 NameIndex : 24;
+        Vec3D Position;
+        Quaternion Rotation;
+        float Scale;
+        uint32 Color;
+    };
+}
 
 /* for whatever reason a certain company just can't stick to one coordinate system... */
 static inline Vec3D fixCoords(const Vec3D &v){ return Vec3D(v.z, v.x, v.y); }
 
+struct WMODoodadData
+{
+    std::vector<WMO::MODS> Sets;
+    std::unique_ptr<char[]> Paths;
+    std::unique_ptr<uint32[]> FileDataIds;
+    std::vector<WMO::MODD> Spawns;
+    std::unordered_set<uint16> References;
+};
+
 class WMORoot
 {
-public:
-    uint32 nTextures, nGroups, nP, nLights, nModels, nDoodads, nDoodadSets, RootWMOID, liquidType;
-    unsigned int col;
-    float bbcorn1[3];
-    float bbcorn2[3];
-
-    WMORoot(std::string &filename);
-    ~WMORoot();
-
-    bool open();
-    bool ConvertToVMAPRootWmo(FILE *output);
 private:
     std::string filename;
-    char outfilename;
+public:
+    unsigned int color;
+    uint32 nTextures, nGroups, nPortals, nLights, nDoodadNames, nDoodadDefs, nDoodadSets, RootWMOID;
+    float bbcorn1[3];
+    float bbcorn2[3];
+    uint16 flags, numLod;
+
+    std::vector<char> GroupNames;
+    WMODoodadData DoodadData;
+    std::unordered_set<uint32> ValidDoodadNames;
+    std::vector<uint32> groupFileDataIDs;
+
+    WMORoot(std::string const& filename);
+
+    bool open();
+    bool ConvertToVMAPRootWmo(FILE* output);
 };
+
+#pragma pack(push, 1)
 
 struct WMOLiquidHeader
 {
@@ -66,7 +105,7 @@ struct WMOLiquidHeader
     float pos_x;
     float pos_y;
     float pos_z;
-    short type;
+    short material;
 };
 
 struct WMOLiquidVert
@@ -76,61 +115,55 @@ struct WMOLiquidVert
     float height;
 };
 
+#pragma pack(pop)
+
 class WMOGroup
 {
+private:
+    std::string filename;
 public:
     // MOGP
-    int groupName, descGroupName, mogpFlags;
+
+    char* MOPY;
+    uint16* MOVI;
+    uint16* MoviEx;
+    float* MOVT;
+    uint16* MOBA;
+    int* MobaEx;
+    WMOLiquidHeader* hlq;
+    WMOLiquidVert* LiquEx;
+    char* LiquBytes;
+    int groupName, descGroupName;
+    int mogpFlags;
     float bbcorn1[3];
     float bbcorn2[3];
     uint16 moprIdx;
     uint16 moprNItems;
     uint16 nBatchA;
     uint16 nBatchB;
-    uint32 nBatchC, fogIdx, liquidType, groupWMOID;
+    uint32 nBatchC, fogIdx, groupLiquid, groupWMOID;
 
-    int mopy_size,moba_size;
+    int mopy_size, moba_size;
     int LiquEx_size;
     unsigned int nVertices; // number when loaded
     int nTriangles; // number when loaded
-    char *MOPY;
-    uint16 *MOVI;
-    uint16 *MoviEx;
-    float *MOVT;
-    uint16 *MOBA;
-    int *MobaEx;
-    WMOLiquidHeader *hlq;
-    WMOLiquidVert *LiquEx;
-    char *LiquBytes;
     uint32 liquflags;
 
-    WMOGroup(std::string &filename);
+    std::vector<uint16> DoodadReferences;
+
+    WMOGroup(std::string const& filename);
     ~WMOGroup();
 
-    bool open();
-    int ConvertToVMAPGroupWmo(FILE *output, WMORoot *rootWMO, bool pPreciseVectorData);
-
-private:
-    std::string filename;
-    char outfilename;
+    bool open(WMORoot* rootWMO);
+    int ConvertToVMAPGroupWmo(FILE* output, bool preciseVectorData);
+    uint32 GetLiquidTypeId(uint32 liquidTypeId);
+    bool ShouldSkip(WMORoot const* root) const;
 };
 
-class WMOInstance
+namespace MapObject
 {
-    static std::set<int> ids;
-public:
-    std::string MapName;
-    int currx;
-    int curry;
-    WMOGroup *wmo;
-    Vec3D pos;
-    Vec3D pos2, pos3, rot;
-    uint32 indx,id, d2, d3;
-    int doodadset;
-
-    WMOInstance(MPQFile &f,const char* WmoInstName, uint32 mapID, uint32 tileX, uint32 tileY, FILE *pDirfile);
-
-    static void reset();
-};
+    void Extract(ADT::MODF const& mapObjDef, char const* WmoInstName, bool isGlobalWmo, uint32 mapID, uint32 originalMapId,
+        FILE* pDirfile, std::vector<ADTOutputCache>* dirfileCache);
+}
 
 #endif

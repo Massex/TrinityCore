@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,7 +18,12 @@
 #ifndef DEF_TOC_H
 #define DEF_TOC_H
 
-enum eData
+#include "CreatureAIImpl.h"
+
+#define ToCScriptName "instance_trial_of_the_champion"
+#define DataHeader "TC"
+
+enum TCData
 {
     BOSS_GRAND_CHAMPIONS,
     BOSS_ARGENT_CHALLENGE_E,
@@ -32,7 +36,7 @@ enum eData
     DATA_ARGENT_SOLDIER_DEFEATED
 };
 
-enum Data64
+enum TCData64
 {
     DATA_ANNOUNCER,
     DATA_MAIN_GATE,
@@ -46,7 +50,7 @@ enum Data64
     DATA_GRAND_CHAMPION_3
 };
 
-enum eNpcs
+enum TCCreatureIds
 {
     // Horde Champions
     NPC_MOKRA                   = 35572,
@@ -78,7 +82,7 @@ enum eNpcs
     NPC_ARELAS                  = 35005
 };
 
-enum eGameObjects
+enum TCGameObjects
 {
     GO_MAIN_GATE                = 195647,
 
@@ -92,7 +96,7 @@ enum eGameObjects
     GO_PALETRESS_LOOT_H            = 195324
 };
 
-enum eVehicles
+enum TCVehicles
 {
     //Grand Champions Alliance Vehicles
     VEHICLE_MARSHAL_JACOB_ALERIUS_MOUNT             = 35637,
@@ -124,5 +128,11 @@ enum eVehicles
 
     VEHICLE_BLACK_KNIGHT                            = 35491
 };
+
+template<class AI>
+inline AI* GetTrialOfTheChampionAI(Creature* creature)
+{
+    return GetInstanceAI<AI>(creature, ToCScriptName);
+}
 
 #endif

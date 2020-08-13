@@ -7,6 +7,8 @@ build*/
 *~
 .hg/
 *.kdev*
+.DS_Store
+CMakeLists.txt.user
 *.bak
 *.patch
 *.diff
@@ -14,3 +16,9 @@ build*/
 *.BACKUP.*
 *.BASE.*
 *.LOCAL.*
+nbproject/*
+.idea/*
+.browse.VC*
+.vscode
+cmake-build-*/
+.vs

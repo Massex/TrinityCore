@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -23,46 +23,47 @@ Category: commandscripts
 EndScriptData */
 
 #include "ScriptMgr.h"
-#include "ObjectMgr.h"
 #include "Chat.h"
+#include "DB2Stores.h"
+#include "Language.h"
+#include "ObjectMgr.h"
+#include "Player.h"
+#include "RBAC.h"
 
 class titles_commandscript : public CommandScript
 {
 public:
     titles_commandscript() : CommandScript("titles_commandscript") { }
 
-    ChatCommand* GetCommands() const
+    std::vector<ChatCommand> GetCommands() const override
     {
-        static ChatCommand titlesSetCommandTable[] =
+        static std::vector<ChatCommand> titlesSetCommandTable =
         {
-            { "mask",           SEC_GAMEMASTER,     false, &HandleTitlesSetMaskCommand,        "", NULL },
-            { NULL,             0,                  false, NULL,                               "", NULL }
+            { "mask", rbac::RBAC_PERM_COMMAND_TITLES_SET_MASK, false, &HandleTitlesSetMaskCommand, "" },
         };
-        static ChatCommand titlesCommandTable[] =
+        static std::vector<ChatCommand> titlesCommandTable =
         {
-            { "add",            SEC_GAMEMASTER,     false, &HandleTitlesAddCommand,            "", NULL },
-            { "current",        SEC_GAMEMASTER,     false, &HandleTitlesCurrentCommand,        "", NULL },
-            { "remove",         SEC_GAMEMASTER,     false, &HandleTitlesRemoveCommand,         "", NULL },
-            { "set",            SEC_GAMEMASTER,     false, NULL,              "", titlesSetCommandTable },
-            { NULL,             0,                  false, NULL,                               "", NULL }
+            { "add",     rbac::RBAC_PERM_COMMAND_TITLES_ADD,     false, &HandleTitlesAddCommand,     "" },
+            { "current", rbac::RBAC_PERM_COMMAND_TITLES_CURRENT, false, &HandleTitlesCurrentCommand, "" },
+            { "remove",  rbac::RBAC_PERM_COMMAND_TITLES_REMOVE,  false, &HandleTitlesRemoveCommand,  "" },
+            { "set",     rbac::RBAC_PERM_COMMAND_TITLES_SET,     false, NULL,       "", titlesSetCommandTable },
         };
-        static ChatCommand commandTable[] =
+        static std::vector<ChatCommand> commandTable =
         {
-            { "titles",         SEC_GAMEMASTER,     false, NULL,                 "", titlesCommandTable },
-            { NULL,             0,                  false, NULL,                               "", NULL }
+            { "titles", rbac::RBAC_PERM_COMMAND_TITLES, false, NULL, "", titlesCommandTable },
         };
         return commandTable;
     }
 
-    static bool HandleTitlesCurrentCommand(ChatHandler* handler, const char* args)
+    static bool HandleTitlesCurrentCommand(ChatHandler* handler, char const* args)
     {
         // number or [name] Shift-click form |color|Htitle:title_id|h[name]|h|r
         char* id_p = handler->extractKeyFromLink((char*)args, "Htitle");
         if (!id_p)
             return false;
 
-        int32 id = atoi(id_p);
-        if (id <= 0)
+        uint32 id = atoul(id_p);
+        if (id == 0)
         {
             handler->PSendSysMessage(LANG_INVALID_TITLE_ID, id);
             handler->SetSentErrorMessage(true);
@@ -78,7 +79,7 @@ public:
         }
 
         // check online security
-        if (handler->HasLowerSecurity(target, 0))
+        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
             return false;
 
         CharTitlesEntry const* titleInfo = sCharTitlesStore.LookupEntry(id);
@@ -92,22 +93,23 @@ public:
         std::string tNameLink = handler->GetNameLink(target);
 
         target->SetTitle(titleInfo);                            // to be sure that title now known
-        target->SetUInt32Value(PLAYER_CHOSEN_TITLE, titleInfo->bit_index);
+        target->SetChosenTitle(titleInfo->MaskID);
 
-        handler->PSendSysMessage(LANG_TITLE_CURRENT_RES, id, titleInfo->name[handler->GetSessionDbcLocale()], tNameLink.c_str());
-
+        handler->PSendSysMessage(LANG_TITLE_CURRENT_RES, id,
+            (target->getGender() == GENDER_MALE ? titleInfo->Name : titleInfo->Name1)[handler->GetSessionDbcLocale()],
+            tNameLink.c_str());
         return true;
     }
 
-    static bool HandleTitlesAddCommand(ChatHandler* handler, const char* args)
+    static bool HandleTitlesAddCommand(ChatHandler* handler, char const* args)
     {
         // number or [name] Shift-click form |color|Htitle:title_id|h[name]|h|r
         char* id_p = handler->extractKeyFromLink((char*)args, "Htitle");
         if (!id_p)
             return false;
 
-        int32 id = atoi(id_p);
-        if (id <= 0)
+        uint32 id = atoul(id_p);
+        if (id == 0)
         {
             handler->PSendSysMessage(LANG_INVALID_TITLE_ID, id);
             handler->SetSentErrorMessage(true);
@@ -123,7 +125,7 @@ public:
         }
 
         // check online security
-        if (handler->HasLowerSecurity(target, 0))
+        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
             return false;
 
         CharTitlesEntry const* titleInfo = sCharTitlesStore.LookupEntry(id);
@@ -136,25 +138,26 @@ public:
 
         std::string tNameLink = handler->GetNameLink(target);
 
-        char const* targetName = target->GetName();
-        char titleNameStr[80];
-        snprintf(titleNameStr, 80, titleInfo->name[handler->GetSessionDbcLocale()], targetName);
+        std::string titleNameStr = Trinity::StringFormat(
+            (target->getGender() == GENDER_MALE ? titleInfo->Name : titleInfo->Name1)[handler->GetSessionDbcLocale()],
+            target->GetName().c_str()
+        );
 
         target->SetTitle(titleInfo);
-        handler->PSendSysMessage(LANG_TITLE_ADD_RES, id, titleNameStr, tNameLink.c_str());
+        handler->PSendSysMessage(LANG_TITLE_ADD_RES, id, titleNameStr.c_str(), tNameLink.c_str());
 
         return true;
     }
 
-    static bool HandleTitlesRemoveCommand(ChatHandler* handler, const char* args)
+    static bool HandleTitlesRemoveCommand(ChatHandler* handler, char const* args)
     {
         // number or [name] Shift-click form |color|Htitle:title_id|h[name]|h|r
         char* id_p = handler->extractKeyFromLink((char*)args, "Htitle");
         if (!id_p)
             return false;
 
-        int32 id = atoi(id_p);
-        if (id <= 0)
+        uint32 id = atoul(id_p);
+        if (id == 0)
         {
             handler->PSendSysMessage(LANG_INVALID_TITLE_ID, id);
             handler->SetSentErrorMessage(true);
@@ -170,7 +173,7 @@ public:
         }
 
         // check online security
-        if (handler->HasLowerSecurity(target, 0))
+        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
             return false;
 
         CharTitlesEntry const* titleInfo = sCharTitlesStore.LookupEntry(id);
@@ -185,15 +188,16 @@ public:
 
         std::string tNameLink = handler->GetNameLink(target);
 
-        char const* targetName = target->GetName();
-        char titleNameStr[80];
-        snprintf(titleNameStr, 80, titleInfo->name[handler->GetSessionDbcLocale()], targetName);
+        std::string titleNameStr = Trinity::StringFormat(
+            (target->getGender() == GENDER_MALE ? titleInfo->Name : titleInfo->Name1)[handler->GetSessionDbcLocale()],
+            target->GetName().c_str()
+        );
 
-        handler->PSendSysMessage(LANG_TITLE_REMOVE_RES, id, titleNameStr, tNameLink.c_str());
+        handler->PSendSysMessage(LANG_TITLE_REMOVE_RES, id, titleNameStr.c_str(), tNameLink.c_str());
 
-        if (!target->HasTitle(target->GetInt32Value(PLAYER_CHOSEN_TITLE)))
+        if (!target->HasTitle(target->m_playerData->PlayerTitle))
         {
-            target->SetUInt32Value(PLAYER_CHOSEN_TITLE, 0);
+            target->SetChosenTitle(0);
             handler->PSendSysMessage(LANG_CURRENT_TITLE_RESET, tNameLink.c_str());
         }
 
@@ -201,7 +205,7 @@ public:
     }
 
     //Edit Player KnownTitles
-    static bool HandleTitlesSetMaskCommand(ChatHandler* handler, const char* args)
+    static bool HandleTitlesSetMaskCommand(ChatHandler* handler, char const* args)
     {
         if (!*args)
             return false;
@@ -219,23 +223,23 @@ public:
         }
 
         // check online security
-        if (handler->HasLowerSecurity(target, 0))
+        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
             return false;
 
         uint64 titles2 = titles;
 
         for (uint32 i = 1; i < sCharTitlesStore.GetNumRows(); ++i)
             if (CharTitlesEntry const* tEntry = sCharTitlesStore.LookupEntry(i))
-                titles2 &= ~(uint64(1) << tEntry->bit_index);
+                titles2 &= ~(uint64(1) << tEntry->MaskID);
 
-        titles &= ~titles2;                                     // remove not existed titles
+        titles &= ~titles2;                                     // remove non-existing titles
 
-        target->SetUInt64Value(PLAYER__FIELD_KNOWN_TITLES, titles);
+        target->SetKnownTitles(0, titles);
         handler->SendSysMessage(LANG_DONE);
 
-        if (!target->HasTitle(target->GetInt32Value(PLAYER_CHOSEN_TITLE)))
+        if (!target->HasTitle(target->m_playerData->PlayerTitle))
         {
-            target->SetUInt32Value(PLAYER_CHOSEN_TITLE, 0);
+            target->SetChosenTitle(0);
             handler->PSendSysMessage(LANG_CURRENT_TITLE_RESET, handler->GetNameLink(target).c_str());
         }
 
